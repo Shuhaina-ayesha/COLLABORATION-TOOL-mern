@@ -1,0 +1,103 @@
+import React, { useEffect, useRef } from 'react';
+import io from 'socket.io-client';
+import './App.css';
+
+const socket = io('http://localhost:5000');
+
+function App() {
+  const canvasRef = useRef(null);
+  const ctxRef = useRef(null);
+  const isDrawingRef = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#000';
+    ctxRef.current = ctx;
+
+    const onDrawing = (data) => {
+      const { x0, y0, x1, y1, color, width } = data;
+      ctxRef.current.strokeStyle = color;
+      ctxRef.current.lineWidth = width;
+      ctxRef.current.beginPath();
+      ctxRef.current.moveTo(x0, y0);
+      ctxRef.current.lineTo(x1, y1);
+      ctxRef.current.stroke();
+    };
+
+    socket.on('drawing', onDrawing);
+    return () => socket.off('drawing', onDrawing);
+  }, []);
+
+  const getCoords = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    return {
+      x: (e.clientX || e.touches[0].clientX) - rect.left,
+      y: (e.clientY || e.touches[0].clientY) - rect.top
+    };
+  };
+
+  const startDrawing = (e) => {
+    isDrawingRef.current = true;
+    const coords = getCoords(e);
+    ctxRef.current.beginPath();
+    ctxRef.current.moveTo(coords.x, coords.y);
+  };
+
+  const draw = (e) => {
+    if (!isDrawingRef.current) return;
+    e.preventDefault();
+    const { x, y } = getCoords(e);
+    ctxRef.current.lineTo(x, y);
+    ctxRef.current.stroke();
+    socket.emit('drawing', {
+      x0: ctxRef.current.lineToX || x,
+      y0: ctxRef.current.lineToY || y,
+      x1: x,
+      y1: y,
+      color: ctxRef.current.strokeStyle,
+      width: ctxRef.current.lineWidth
+    });
+  };
+
+  const stopDrawing = () => {
+    if (isDrawingRef.current) {
+      isDrawingRef.current = false;
+    }
+  };
+
+  const clearCanvas = () => {
+    ctxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    socket.emit('clear');
+  };
+
+  return (
+    <div className="app">
+      <header>
+        <h1>Real-Time Collaborative Whiteboard</h1>
+        <button onClick={clearCanvas}>Clear</button>
+        <div className="tools">
+          <label>Color: <input type="color" defaultValue="#000000" onChange={(e) => ctxRef.current.strokeStyle = e.target.value} /></label>
+          <label>Size: <input type="range" min="1" max="20" defaultValue="5" onChange={(e) => ctxRef.current.lineWidth = e.target.value} /></label>
+        </div>
+      </header>
+      <canvas
+        ref={canvasRef}
+        width={1200}
+        height={800}
+        onMouseDown={startDrawing}
+        onMouseMove={draw}
+        onMouseUp={stopDrawing}
+        onMouseLeave={stopDrawing}
+        onTouchStart={startDrawing}
+        onTouchMove={draw}
+        onTouchEnd={stopDrawing}
+      />
+    </div>
+  );
+}
+
+export default App;
